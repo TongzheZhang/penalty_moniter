@@ -68,6 +68,15 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
     reason_buckets: dict[str, int] = {}
     failure_buckets: dict[str, int] = {}
 
+    threshold = 0.75
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            threshold = float(summary.get("probability_threshold", threshold))
+        except Exception:
+            pass
+
     for item in merged:
         ev = item["evidence"]
         pred = item["prediction"] or {}
@@ -75,14 +84,6 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
 
         actual = aud.get("actual_outcome", "unknown")
         prob = pred.get("penalty_probability", 0.0)
-        threshold = 0.75
-        summary_path = run_dir / "summary.json"
-        if summary_path.exists():
-            try:
-                summary = json.loads(summary_path.read_text(encoding="utf-8"))
-                threshold = float(summary.get("probability_threshold", threshold))
-            except Exception:
-                pass
 
         predicted_positive = prob >= threshold
         actual_positive = is_positive_outcome(actual)

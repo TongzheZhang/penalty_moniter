@@ -12,9 +12,11 @@ from src.agents.paper_execution import PaperExecutionAgent
 from src.agents.vision_sensor import VisionSensorAgent
 from src.clients.polymarket_client import PolymarketClient, PolymarketClientError
 from src.config import Settings
-from src.live import LiveStateProvider, LiveVideoRunner, VideoFrameSource
+from src.agents.commentary import CommentaryAnalyzer, CommentaryMonitor
+from src.live import ClipRecorder, LiveStateProvider, LiveVideoRunner, VideoFrameSource
 from src.notifier import Notifier
 from src.pipeline import PenaltyResearchPipeline
+from src.stream_resolver import DirectUrlResolver, resolve_stream_url
 from src.reporting.renderers import format_replay_summary
 from src.reporting.html_renderer import render_analysis_report
 from src.storage.jsonl_store import RunStore, JsonlStore
@@ -326,6 +328,23 @@ def run_geoblock(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_video_source(source: str) -> str:
+    """如果是网页 URL，尝试解析为直接流地址。"""
+    if not source.startswith(("http://", "https://", "rtmp://", "rtsp://")):
+        return source  # 摄像头编号或本地文件
+    direct = DirectUrlResolver()
+    if direct.can_handle(source):
+        return source
+    try:
+        return resolve_stream_url(source)
+    except RuntimeError as exc:
+        print(json.dumps(
+            {"status": "warning", "message": f"流地址解析失败，将直接尝试原始输入: {exc}"},
+            ensure_ascii=False, indent=2,
+        ))
+        return source
+
+
 def run_live(args: argparse.Namespace) -> int:
     settings = Settings.from_file(ROOT / args.config)
     output_dir = Path(args.output_dir) if args.output_dir else None
@@ -337,6 +356,9 @@ def run_live(args: argparse.Namespace) -> int:
     state_file = Path(args.state_file) if args.state_file else None
     if state_file is not None and not state_file.is_absolute():
         state_file = ROOT / state_file
+
+    # 解析视频源（网页 URL -> 直接流地址）
+    video_source = _resolve_video_source(args.video_source)
 
     match_context = {
         "home": args.home,
@@ -350,11 +372,42 @@ def run_live(args: argparse.Namespace) -> int:
         "liquidity_usd": args.liquidity_usd,
     }
     frame_source = VideoFrameSource(
-        source=args.video_source,
+        source=video_source,
         frames_dir=frames_dir,
         sample_interval_sec=args.sample_interval_sec,
         save_frames=not args.no_save_frames,
     )
+
+    # 解说监控
+    commentary_monitor: CommentaryMonitor | None = None
+    commentary_mode = args.commentary_mode
+    if commentary_mode != "off":
+        commentary_file = Path(args.commentary_file) if args.commentary_file else None
+        if commentary_file is not None and not commentary_file.is_absolute():
+            commentary_file = ROOT / commentary_file
+        try:
+            commentary_monitor = CommentaryMonitor(
+                mode=commentary_mode,
+                stream_url=video_source if commentary_mode == "audio" else None,
+                commentary_file=commentary_file,
+                analyzer=CommentaryAnalyzer(),
+                interval_sec=args.commentary_interval_sec,
+                whisper_model=args.whisper_model,
+                work_dir=pipeline.store.root / "commentary_work",
+            )
+        except RuntimeError as exc:
+            print(json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False, indent=2))
+            return 1
+
+    # 视频片段录制
+    clip_recorder: ClipRecorder | None = None
+    if args.save_clips:
+        clip_recorder = ClipRecorder(
+            stream_url=video_source,
+            clips_dir=pipeline.store.root / "clips",
+            clip_sec=args.clip_sec,
+        )
+
     runner = LiveVideoRunner(
         pipeline=pipeline,
         frame_source=frame_source,
@@ -364,9 +417,11 @@ def run_live(args: argparse.Namespace) -> int:
             default_market_snapshot=market_snapshot,
         ),
         match_id=args.match_id,
-        source_label=f"live_video:{args.video_source}",
+        source_label=f"live_video:{video_source}",
         print_all=not args.only_alerts,
         notifier=Notifier(settings.notify_config),
+        commentary_monitor=commentary_monitor,
+        clip_recorder=clip_recorder,
     )
     try:
         summary = runner.run(max_frames=args.max_frames)
@@ -375,6 +430,16 @@ def run_live(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
+
+
+def run_resolve_stream(args: argparse.Namespace) -> int:
+    try:
+        url = resolve_stream_url(args.url)
+        print(json.dumps({"status": "ok", "stream_url": url}, ensure_ascii=False, indent=2))
+        return 0
+    except RuntimeError as exc:
+        print(json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False, indent=2))
+        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -404,6 +469,15 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--liquidity-usd", type=float, default=None, help="流动性估计，可选")
     live.add_argument("--only-alerts", action="store_true", help="只打印达到阈值的判断")
     live.add_argument("--no-save-frames", action="store_true", help="不保存抽帧图片")
+    live.add_argument("--commentary-mode", choices=["off", "file", "audio"], default="off", help="解说监控模式")
+    live.add_argument("--commentary-file", default="", help="外部解说文本文件路径（file 模式）")
+    live.add_argument("--whisper-model", choices=["tiny", "base", "small"], default="base", help="STT 模型大小（audio 模式）")
+    live.add_argument("--commentary-interval-sec", type=float, default=3.0, help="解说采样间隔，单位秒")
+    live.add_argument("--save-clips", action="store_true", help="达标时保存视频片段")
+    live.add_argument("--clip-sec", type=float, default=10.0, help="视频片段时长，单位秒")
+
+    resolve = sub.add_parser("resolve-stream", help="解析直播网页 URL 为直接流地址")
+    resolve.add_argument("--url", required=True, help="直播网页地址")
 
     markets = sub.add_parser("markets", help="读取公开 Polymarket 赛事事件，仅用于研究")
     markets.add_argument("--tag-id", type=int, required=True, help="Polymarket Gamma tag_id")
@@ -472,6 +546,8 @@ def main() -> int:
         return run_sample(args)
     if args.command == "live":
         return run_live(args)
+    if args.command == "resolve-stream":
+        return run_resolve_stream(args)
     if args.command == "markets":
         return run_markets(args)
     if args.command == "geoblock-check":

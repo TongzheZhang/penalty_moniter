@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from src.agents.audit import AuditEvolutionAgent
+from src.agents.audit import AuditEvolutionAgent, is_positive_outcome
 from src.agents.context import ContextAgent
 from src.agents.decision import DecisionAgent
 from src.agents.market_sensor import MarketSensorAgent
@@ -130,10 +130,7 @@ def run_grid_search(
                     continue
 
                 predicted_positive = pred["penalty_probability"] >= threshold
-                actual_positive = actual in {
-                    "yes", "true", "penalty", "penalty_awarded",
-                    "penalty_scored", "var_penalty_awarded",
-                }
+                actual_positive = is_positive_outcome(actual)
                 if predicted_positive and actual_positive:
                     tp += 1
                 elif predicted_positive and not actual_positive:
@@ -173,62 +170,54 @@ def run_grid_search(
     return results
 
 
+def _fmt_header() -> str:
+    return f"{'threshold':>10} {'confidence':>10} {'precision':>10} {'recall':>8} {'f1':>8} {'pnl':>10} {'orders':>7}"
+
+
+def _fmt_row(r: TuneResult) -> str:
+    return (
+        f"{r.probability_threshold:>10.2f} {r.min_confidence:>10.2f} "
+        f"{(r.precision or 0):>10.2%} {(r.recall or 0):>8.2%} {(r.f1 or 0):>8.4f} "
+        f"{r.total_pnl:>10.2f} {r.paper_orders:>7d}"
+    )
+
+
 def format_tuning_report(results: list[TuneResult], top_k: int = 10) -> str:
-    lines = [
-        "Penalty Monitor - 参数网格搜索报告",
-        "=" * 50,
-        f"搜索组合数: {len(results)}",
-        "",
-    ]
+    def _generate():
+        yield "Penalty Monitor - 参数网格搜索报告"
+        yield "=" * 50
+        yield f"搜索组合数: {len(results)}"
+        yield ""
 
-    # 按 F1 排序
-    scored = [r for r in results if r.f1 is not None]
-    by_f1 = sorted(scored, key=lambda x: (x.f1 or 0, x.total_pnl), reverse=True)[:top_k]
-    lines.append("Top F1 组合:")
-    lines.append("-" * 50)
-    lines.append(
-        f"{'threshold':>10} {'confidence':>10} {'precision':>10} {'recall':>8} {'f1':>8} {'pnl':>10} {'orders':>7}"
-    )
-    for r in by_f1:
-        lines.append(
-            f"{r.probability_threshold:>10.2f} {r.min_confidence:>10.2f} "
-            f"{(r.precision or 0):>10.2%} {(r.recall or 0):>8.2%} {(r.f1 or 0):>8.4f} "
-            f"{r.total_pnl:>10.2f} {r.paper_orders:>7d}"
-        )
+        scored = [r for r in results if r.f1 is not None]
+        by_f1 = sorted(scored, key=lambda x: (x.f1 or 0, x.total_pnl), reverse=True)[:top_k]
+        yield "Top F1 组合:"
+        yield "-" * 50
+        yield _fmt_header()
+        for r in by_f1:
+            yield _fmt_row(r)
 
-    lines.append("")
-    lines.append("Top PnL 组合:")
-    lines.append("-" * 50)
-    by_pnl = sorted(results, key=lambda x: x.total_pnl, reverse=True)[:top_k]
-    lines.append(
-        f"{'threshold':>10} {'confidence':>10} {'precision':>10} {'recall':>8} {'f1':>8} {'pnl':>10} {'orders':>7}"
-    )
-    for r in by_pnl:
-        lines.append(
-            f"{r.probability_threshold:>10.2f} {r.min_confidence:>10.2f} "
-            f"{(r.precision or 0):>10.2%} {(r.recall or 0):>8.2%} {(r.f1 or 0):>8.4f} "
-            f"{r.total_pnl:>10.2f} {r.paper_orders:>7d}"
-        )
+        yield ""
+        yield "Top PnL 组合:"
+        yield "-" * 50
+        by_pnl = sorted(results, key=lambda x: x.total_pnl, reverse=True)[:top_k]
+        yield _fmt_header()
+        for r in by_pnl:
+            yield _fmt_row(r)
 
-    lines.append("")
-    lines.append("Top 精确率组合 (precision >= 0.8):")
-    lines.append("-" * 50)
-    high_prec = [r for r in scored if (r.precision or 0) >= 0.8]
-    by_prec = sorted(high_prec, key=lambda x: (x.precision or 0, x.recall or 0), reverse=True)[:top_k]
-    if not by_prec:
-        lines.append("(无)")
-    else:
-        lines.append(
-            f"{'threshold':>10} {'confidence':>10} {'precision':>10} {'recall':>8} {'f1':>8} {'pnl':>10} {'orders':>7}"
-        )
-        for r in by_prec:
-            lines.append(
-                f"{r.probability_threshold:>10.2f} {r.min_confidence:>10.2f} "
-                f"{(r.precision or 0):>10.2%} {(r.recall or 0):>8.2%} {(r.f1 or 0):>8.4f} "
-                f"{r.total_pnl:>10.2f} {r.paper_orders:>7d}"
-            )
+        yield ""
+        yield "Top 精确率组合 (precision >= 0.8):"
+        yield "-" * 50
+        high_prec = [r for r in scored if (r.precision or 0) >= 0.8]
+        by_prec = sorted(high_prec, key=lambda x: (x.precision or 0, x.recall or 0), reverse=True)[:top_k]
+        if not by_prec:
+            yield "(无)"
+        else:
+            yield _fmt_header()
+            for r in by_prec:
+                yield _fmt_row(r)
 
-    return "\n".join(lines)
+    return "\n".join(_generate())
 
 
 def save_tuning_results(results: list[TuneResult], path: Path) -> None:

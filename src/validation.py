@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from src.agents.audit import normalize_outcome
+from src.utils import parse_iso_safe
 
 VALID_OUTCOMES = {
     "yes", "true", "penalty", "penalty_awarded", "penalty_scored",
@@ -56,7 +56,7 @@ def validate_events(events: list[dict[str, Any]]) -> list[ValidationIssue]:
         # timestamp_utc
         ts = ev.get("timestamp_utc")
         if ts:
-            parsed_ts = _parse_iso_safe(ts)
+            parsed_ts = parse_iso_safe(ts)
             if parsed_ts is None:
                 issues.append(ValidationIssue("error", eid, "timestamp_utc", f"时间格式无效: {ts}"))
             else:
@@ -129,7 +129,7 @@ def validate_events(events: list[dict[str, Any]]) -> list[ValidationIssue]:
             continue
         parsed = []
         for eid, ts in event_list:
-            dt = _parse_iso_safe(ts)
+            dt = parse_iso_safe(ts)
             if dt is not None:
                 parsed.append((eid, dt))
         parsed.sort(key=lambda x: x[1])
@@ -171,13 +171,3 @@ def format_validation_report(issues: list[ValidationIssue]) -> str:
     return "\n".join(lines)
 
 
-def _parse_iso_safe(value: Any) -> datetime | None:
-    if not value:
-        return None
-    text = str(value).strip()
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError:
-        return None

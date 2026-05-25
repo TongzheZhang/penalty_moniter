@@ -4,37 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from src.time_utils import parse_utc, utc_now_iso
-
-
-def _float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None:
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _optional_float(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _score(value: Any) -> float:
-    return max(0.0, min(1.0, _float(value)))
+from src.utils import clamp_score, optional_float, optional_int, safe_float
 
 
 @dataclass(frozen=True)
@@ -45,24 +15,36 @@ class SignalScores:
     ref_earpiece_score: float = 0.0
     ref_var_walk_score: float = 0.0
     whistle_or_stoppage_score: float = 0.0
+    commentary_score: float = 0.0
+    commentary_triggered: bool = False
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> "SignalScores":
         payload = payload or {}
         return cls(
-            box_contact_score=_score(payload.get("box_contact_score")),
-            fall_score=_score(payload.get("fall_score")),
-            protest_score=_score(payload.get("protest_score")),
-            ref_earpiece_score=_score(payload.get("ref_earpiece_score")),
-            ref_var_walk_score=_score(payload.get("ref_var_walk_score")),
-            whistle_or_stoppage_score=_score(payload.get("whistle_or_stoppage_score")),
+            box_contact_score=clamp_score(payload.get("box_contact_score")),
+            fall_score=clamp_score(payload.get("fall_score")),
+            protest_score=clamp_score(payload.get("protest_score")),
+            ref_earpiece_score=clamp_score(payload.get("ref_earpiece_score")),
+            ref_var_walk_score=clamp_score(payload.get("ref_var_walk_score")),
+            whistle_or_stoppage_score=clamp_score(payload.get("whistle_or_stoppage_score")),
+            commentary_score=clamp_score(payload.get("commentary_score")),
+            commentary_triggered=bool(payload.get("commentary_triggered", False)),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def max_score(self) -> float:
-        return max(asdict(self).values())
+        return max(
+            self.box_contact_score,
+            self.fall_score,
+            self.protest_score,
+            self.ref_earpiece_score,
+            self.ref_var_walk_score,
+            self.whistle_or_stoppage_score,
+            self.commentary_score,
+        )
 
 
 @dataclass(frozen=True)
@@ -81,10 +63,10 @@ class MarketSnapshot:
         return cls(
             market_id=str(payload.get("market_id") or ""),
             token_id=str(payload.get("token_id") or ""),
-            best_bid=_optional_float(payload.get("best_bid")),
-            best_ask=_optional_float(payload.get("best_ask")),
-            last_price=_optional_float(payload.get("last_price")),
-            liquidity_usd=_optional_float(payload.get("liquidity_usd")),
+            best_bid=optional_float(payload.get("best_bid")),
+            best_ask=optional_float(payload.get("best_ask")),
+            last_price=optional_float(payload.get("last_price")),
+            liquidity_usd=optional_float(payload.get("liquidity_usd")),
             timestamp_utc=parse_utc(payload.get("timestamp_utc")),
         )
 
@@ -124,13 +106,13 @@ class MatchContext:
         return cls(
             home=str(payload.get("home") or ""),
             away=str(payload.get("away") or ""),
-            score_home=_optional_int(payload.get("score_home")),
-            score_away=_optional_int(payload.get("score_away")),
-            minute=_optional_int(payload.get("minute")),
-            red_cards_home=int(_float(payload.get("red_cards_home"), 0)),
-            red_cards_away=int(_float(payload.get("red_cards_away"), 0)),
+            score_home=optional_int(payload.get("score_home")),
+            score_away=optional_int(payload.get("score_away")),
+            minute=optional_int(payload.get("minute")),
+            red_cards_home=int(safe_float(payload.get("red_cards_home"), 0)),
+            red_cards_away=int(safe_float(payload.get("red_cards_away"), 0)),
             referee=str(payload.get("referee") or ""),
-            var_history_penalty_rate=_optional_float(payload.get("var_history_penalty_rate")),
+            var_history_penalty_rate=optional_float(payload.get("var_history_penalty_rate")),
             attacking_side=str(payload.get("attacking_side") or "unknown"),
             notes=str(payload.get("notes") or ""),
         )
@@ -160,7 +142,7 @@ class EvidenceEvent:
             event_id=str(payload.get("event_id") or ""),
             match_id=str(payload.get("match_id") or ""),
             timestamp_utc=parse_utc(payload.get("timestamp_utc")),
-            video_ts=_optional_float(payload.get("video_ts")),
+            video_ts=optional_float(payload.get("video_ts")),
             source=str(payload.get("source") or "unknown"),
             frame_paths=[str(item) for item in payload.get("frame_paths", [])],
             signals=SignalScores.from_dict(payload.get("signals")),
@@ -249,6 +231,32 @@ class MatchInfo:
     start_time: str = ""
     market_id: str = ""
     token_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class CommentaryTranscript:
+    timestamp_utc: str = field(default_factory=utc_now_iso)
+    video_ts: float | None = None
+    text: str = ""
+    keywords_hit: list[str] = field(default_factory=list)
+    urgency_score: float = 0.0
+    raw_confidence: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class VideoClip:
+    clip_path: str
+    start_ts: float
+    end_ts: float
+    trigger_event_id: str
+    trigger_probability: float
+    created_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

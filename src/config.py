@@ -29,6 +29,7 @@ class Settings:
     weight_ref_earpiece: float = 0.20
     weight_ref_var_walk: float = 0.20
     weight_stoppage: float = 0.05
+    commentary_weight: float = 0.15
     simulated_size_usd: float = 100.0
     max_loss_usd: float = 25.0
     min_liquidity_usd: float = 0.0
@@ -60,6 +61,7 @@ class Settings:
             weight_ref_earpiece=float(decision.get("weight_ref_earpiece", cls.weight_ref_earpiece)),
             weight_ref_var_walk=float(decision.get("weight_ref_var_walk", cls.weight_ref_var_walk)),
             weight_stoppage=float(decision.get("weight_stoppage", cls.weight_stoppage)),
+            commentary_weight=float(payload.get("commentary", {}).get("weight", cls.commentary_weight)),
             simulated_size_usd=float(paper.get("simulated_size_usd", cls.simulated_size_usd)),
             max_loss_usd=float(paper.get("max_loss_usd", cls.max_loss_usd)),
             min_liquidity_usd=float(paper.get("min_liquidity_usd", cls.min_liquidity_usd)),

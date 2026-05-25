@@ -13,6 +13,7 @@ from src.agents.vision_sensor import VisionSensorAgent
 from src.config import Settings
 from src.models import EvidenceEvent
 from src.storage.jsonl_store import RunStore
+from src.utils import optional_float
 
 
 class PenaltyResearchPipeline:
@@ -50,8 +51,8 @@ class PenaltyResearchPipeline:
             prediction=prediction,
             paper_order=paper_order,
             actual_outcome=raw_event.get("actual_outcome"),
-            price_after_30s=_optional_float(raw_event.get("price_after_30s")),
-            price_after_120s=_optional_float(raw_event.get("price_after_120s")),
+            price_after_30s=optional_float(raw_event.get("price_after_30s")),
+            price_after_120s=optional_float(raw_event.get("price_after_120s")),
             execution_blocks=execution_blocks,
         )
         candidate = self.audit_agent.maybe_create_candidate(event, audit)
@@ -158,10 +159,4 @@ def summarize_outputs(outputs: list[dict[str, Any]], threshold: float) -> dict[s
     }
 
 
-def _optional_float(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+

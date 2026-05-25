@@ -39,6 +39,39 @@ polymarket:
   timeout_sec: 15
   max_retries: 2
 
+# 解说监控配置：从直播音频/文本中提取解说员的点球预判信号。
+commentary:
+  enabled: false
+  weight: 0.15              # 解说信号在 visual_score 中的权重
+  interval_sec: 3.0         # 音频采样/文本读取间隔
+  whisper_model: base       # tiny | base | small
+  keywords:
+    strong:
+      - "点球"
+      - "penalty"
+      - "十二码"
+      - "VAR 介入"
+      - "犯规在禁区"
+    medium:
+      - "禁区里"
+      - "禁区内"
+      - "倒地"
+      - "裁判跑向"
+      - "VAR"
+      - "慢动作"
+    weak:
+      - "有争议"
+      - "身体接触"
+      - "战术犯规"
+  window_sec: 10.0          # 滑动窗口时长（秒）
+  min_urgency: 0.5          # 计入信号的最小紧急度
+
+# 视频录制配置：触发阈值时自动保存片段。
+recording:
+  save_clips: false
+  clip_sec: 10.0            # 触发后保存多少秒
+  save_full_stream: false   # 是否保存完整原始流（占用极大，慎用）
+
 # 运行数据目录。每次 replay 默认会在这里按时间创建一个子目录。
 data:
   runs_dir: data/runs

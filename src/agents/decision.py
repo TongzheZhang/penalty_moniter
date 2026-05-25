@@ -23,6 +23,7 @@ class DecisionAgent:
             + self.settings.weight_ref_earpiece * signals.ref_earpiece_score
             + self.settings.weight_ref_var_walk * signals.ref_var_walk_score
             + self.settings.weight_stoppage * signals.whistle_or_stoppage_score
+            + self.settings.commentary_weight * signals.commentary_score
         )
 
         probability = 0.05 + 0.90 * visual_score
@@ -68,6 +69,23 @@ class DecisionAgent:
             confidence += 0.10
         if event.signals.max_score() >= 0.70:
             confidence += 0.20
+        # 解说信号增强
+        if event.signals.commentary_score >= 0.70:
+            confidence += 0.10
+        # 多模态确认：解说 + 视觉同时触发
+        visual_signals_high = any(
+            score >= 0.60
+            for score in [
+                event.signals.box_contact_score,
+                event.signals.fall_score,
+                event.signals.protest_score,
+                event.signals.ref_earpiece_score,
+                event.signals.ref_var_walk_score,
+                event.signals.whistle_or_stoppage_score,
+            ]
+        )
+        if visual_signals_high and event.signals.commentary_triggered:
+            confidence += 0.15
         return max(0.0, min(0.95, confidence))
 
     @staticmethod
@@ -90,6 +108,25 @@ class DecisionAgent:
             reasons.append("multi_signal_cluster_strong")
         elif visual_score >= 0.65:
             reasons.append("multi_signal_cluster_medium")
+        if signals.commentary_triggered:
+            if signals.commentary_score >= 0.70:
+                reasons.append("commentary_penalty_mentioned")
+            else:
+                reasons.append("commentary_var_alert")
+        # 多模态确认
+        visual_signals_high = any(
+            score >= 0.60
+            for score in [
+                signals.box_contact_score,
+                signals.fall_score,
+                signals.protest_score,
+                signals.ref_earpiece_score,
+                signals.ref_var_walk_score,
+                signals.whistle_or_stoppage_score,
+            ]
+        )
+        if visual_signals_high and signals.commentary_triggered:
+            reasons.append("multimodal_confirm")
         if not event.market_snapshot.is_mapped():
             reasons.append("market_unmapped")
         return reasons
