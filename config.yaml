@@ -1,0 +1,44 @@
+# 项目名：只影响运行目录和日志语义，不影响策略逻辑。
+project_name: penalty_moniter
+
+# 当前 MVP 只支持 paper。不要把这里改成实盘模式。
+mode: paper
+enable_real_trading: false
+
+# 决策层配置：达到概率阈值和最低置信度后，才允许进入纸面执行。
+decision:
+  probability_threshold: 0.75
+  min_confidence: 0.55
+  model_version: rule-v0.1
+  # 信号权重：用于计算 visual_score，权重之和不需要等于 1，因为后续会映射到概率。
+  weight_box_contact: 0.25
+  weight_fall: 0.15
+  weight_protest: 0.15
+  weight_ref_earpiece: 0.20
+  weight_ref_var_walk: 0.20
+  weight_stoppage: 0.05
+
+# 纸面交易配置：simulated_size_usd 是名义模拟金额，max_loss_usd 是单笔最大风险上限。
+paper:
+  simulated_size_usd: 100.0
+  max_loss_usd: 25.0
+  min_liquidity_usd: 0.0
+  cooldown_sec: 30.0
+
+# 通知配置：live 模式下概率达到阈值时触发提醒。
+notifications:
+  enabled: true
+  desktop: true      # Linux: notify-send, macOS: osascript
+  sound: true        # 终端响铃
+  min_probability: 0.75
+
+# Polymarket 只读接口配置。当前代码只读取公开市场/地理限制状态，不下单。
+polymarket:
+  gamma_api_base: https://gamma-api.polymarket.com
+  geoblock_url: https://polymarket.com/api/geoblock
+  timeout_sec: 15
+  max_retries: 2
+
+# 运行数据目录。每次 replay 默认会在这里按时间创建一个子目录。
+data:
+  runs_dir: data/runs

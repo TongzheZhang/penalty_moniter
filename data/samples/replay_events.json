@@ -1,0 +1,102 @@
+[
+  {
+    "event_id": "evt_demo_penalty_001",
+    "match_id": "arsenal-chelsea-2026-04-30",
+    "timestamp_utc": "2026-04-30T12:10:05Z",
+    "video_ts": 4312.4,
+    "source": "manual_replay",
+    "frame_paths": ["samples/evt_demo_penalty_001_01.jpg", "samples/evt_demo_penalty_001_02.jpg"],
+    "signals": {
+      "box_contact_score": 0.92,
+      "fall_score": 0.86,
+      "protest_score": 0.72,
+      "ref_earpiece_score": 0.90,
+      "ref_var_walk_score": 0.84,
+      "whistle_or_stoppage_score": 0.70
+    },
+    "market_snapshot": {
+      "market_id": "demo_market_arsenal_win",
+      "token_id": "demo_token_yes",
+      "best_bid": 0.59,
+      "best_ask": 0.61,
+      "last_price": 0.60,
+      "liquidity_usd": 2500.0,
+      "timestamp_utc": "2026-04-30T12:10:05Z"
+    },
+    "match_context": {
+      "home": "Arsenal",
+      "away": "Chelsea",
+      "score_home": 1,
+      "score_away": 1,
+      "minute": 72,
+      "referee": "Demo Referee",
+      "var_history_penalty_rate": 0.58,
+      "attacking_side": "home"
+    },
+    "actual_outcome": "penalty_awarded",
+    "price_after_30s": 0.74,
+    "price_after_120s": 0.82
+  },
+  {
+    "event_id": "evt_demo_false_positive_002",
+    "match_id": "milan-inter-2026-04-30",
+    "timestamp_utc": "2026-04-30T13:34:20Z",
+    "video_ts": 2798.1,
+    "source": "manual_replay",
+    "frame_paths": ["samples/evt_demo_false_positive_002_01.jpg"],
+    "signals": {
+      "box_contact_score": 0.72,
+      "fall_score": 0.77,
+      "protest_score": 0.82,
+      "ref_earpiece_score": 0.88,
+      "ref_var_walk_score": 0.78,
+      "whistle_or_stoppage_score": 0.68
+    },
+    "market_snapshot": {
+      "market_id": "demo_market_milan_win",
+      "token_id": "demo_token_yes",
+      "best_bid": 0.44,
+      "best_ask": 0.46,
+      "last_price": 0.45,
+      "liquidity_usd": 1500.0,
+      "timestamp_utc": "2026-04-30T13:34:20Z"
+    },
+    "match_context": {
+      "home": "Milan",
+      "away": "Inter",
+      "score_home": 2,
+      "score_away": 2,
+      "minute": 64,
+      "attacking_side": "away"
+    },
+    "actual_outcome": "no_penalty",
+    "price_after_30s": 0.45,
+    "price_after_120s": 0.43
+  },
+  {
+    "event_id": "evt_demo_watch_only_003",
+    "match_id": "barcelona-real-madrid-2026-04-30",
+    "timestamp_utc": "2026-04-30T14:02:49Z",
+    "video_ts": 1102.2,
+    "source": "manual_replay",
+    "frame_paths": [],
+    "signals": {
+      "box_contact_score": 0.45,
+      "fall_score": 0.58,
+      "protest_score": 0.62,
+      "ref_earpiece_score": 0.20,
+      "ref_var_walk_score": 0.10,
+      "whistle_or_stoppage_score": 0.55
+    },
+    "market_snapshot": {},
+    "match_context": {
+      "home": "Barcelona",
+      "away": "Real Madrid",
+      "score_home": 0,
+      "score_away": 1,
+      "minute": 31,
+      "attacking_side": "home"
+    },
+    "actual_outcome": "no_penalty"
+  }
+]

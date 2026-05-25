@@ -1,0 +1,28 @@
+{
+  "signals": {
+    "box_contact_score": 0.0,
+    "fall_score": 0.0,
+    "protest_score": 0.0,
+    "ref_earpiece_score": 0.0,
+    "ref_var_walk_score": 0.0,
+    "whistle_or_stoppage_score": 0.0
+  },
+  "market_snapshot": {
+    "market_id": "",
+    "token_id": "",
+    "best_bid": null,
+    "best_ask": null,
+    "last_price": null,
+    "liquidity_usd": null
+  },
+  "match_context": {
+    "home": "",
+    "away": "",
+    "score_home": null,
+    "score_away": null,
+    "minute": null,
+    "referee": "",
+    "var_history_penalty_rate": null,
+    "attacking_side": "unknown"
+  }
+}
