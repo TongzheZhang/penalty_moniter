@@ -25,6 +25,13 @@ from src.batch_replay import run_batch_replay as _batch_replay_core, format_batc
 from src.cooldown import CooldownTracker
 from src.state_editor import update_state
 from src.validation import validate_events, format_validation_report
+from src.offline.collector import MatchCollector
+from src.offline.preprocessor import MatchPreprocessor
+from src.offline.annotator import run_cli_annotator
+from src.offline.dataset_builder import DatasetBuilder
+from src.offline.trainer import TrainConfig, Trainer
+from src.offline.evaluator import Evaluator
+from src.online.pipeline import MLOnlinePipeline
 
 
 ROOT = Path(__file__).parent
@@ -534,7 +541,139 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--output-dir", default="", help="批量运行根目录")
     batch.add_argument("--config", default="config.yaml", help="基础配置文件路径")
 
+    # 离线数据采集
+    collect = sub.add_parser("collect", help="采集公开比赛录像")
+    collect.add_argument("--urls", required=True, help="URL列表文件，每行一个")
+    collect.add_argument("--output", default="data/matches", help="输出目录")
+    collect.add_argument("--dry-run", action="store_true", help="只解析元数据不下载")
+
+    preprocess = sub.add_parser("preprocess", help="预处理比赛录像")
+    preprocess.add_argument("--match-dir", required=True, help="比赛目录")
+    preprocess.add_argument("--slice-window", type=float, default=10.0, help="切片窗口秒数")
+    preprocess.add_argument("--slice-stride", type=float, default=5.0, help="切片步进秒数")
+    preprocess.add_argument("--whisper-model", default="base", help="STT模型大小")
+
+    annotate_video = sub.add_parser("annotate-video", help="交互式视频标注工具")
+    annotate_video.add_argument("--match-dir", required=True, help="比赛目录")
+    annotate_video.add_argument("--transcript", default="", help="转录文件路径")
+    annotate_video.add_argument("--labeler", default="anonymous", help="标注者ID")
+
+    build_dataset = sub.add_parser("build-dataset", help="从标注比赛构建训练数据集")
+    build_dataset.add_argument("--matches-dir", default="data/matches", help="比赛目录")
+    build_dataset.add_argument("--output", default="data/datasets/v1", help="数据集输出目录")
+    build_dataset.add_argument("--neg-ratio", type=float, default=4.0, help="负样本比例")
+
+    train = sub.add_parser("train", help="训练点球预测模型")
+    train.add_argument("--dataset", default="data/datasets/v1", help="数据集目录")
+    train.add_argument("--model-name", default="penalty_predictor_v1", help="模型名称")
+    train.add_argument("--device", default="cpu", help="训练设备 cpu/cuda")
+    train.add_argument("--epochs", type=int, default=50, help="训练轮数")
+    train.add_argument("--batch-size", type=int, default=32, help="批次大小")
+    train.add_argument("--lr", type=float, default=1e-4, help="学习率")
+
+    evaluate = sub.add_parser("evaluate", help="评估模型在测试集上的性能")
+    evaluate.add_argument("--model", required=True, help="模型文件路径 (.pt 或 .onnx)")
+    evaluate.add_argument("--dataset", default="data/datasets/v1", help="数据集目录")
+    evaluate.add_argument("--device", default="cpu", help="推理设备")
+
+    watch = sub.add_parser("watch", help="使用ML模型监控直播流")
+    watch.add_argument("--stream", required=True, help="直播流地址")
+    watch.add_argument("--match-id", required=True, help="比赛ID")
+    watch.add_argument("--model", required=True, help="ONNX/PyTorch模型路径")
+    watch.add_argument("--threshold", type=float, default=0.75, help="触发阈值")
+    watch.add_argument("--max-frames", type=int, default=0, help="最大处理帧数")
+    watch.add_argument("--sample-interval", type=float, default=1.0, help="抽帧间隔")
+
     return parser
+
+
+def run_collect(args: argparse.Namespace) -> int:
+    collector = MatchCollector(output_dir=Path(args.output))
+    urls = [line.strip() for line in Path(args.urls).read_text(encoding="utf-8").splitlines() if line.strip()]
+    results = collector.batch_download(urls=urls, dry_run=args.dry_run)
+    print(json.dumps({"status": "ok", "downloaded": len(results), "dirs": [str(d) for d in results]}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_preprocess(args: argparse.Namespace) -> int:
+    match_dir = Path(args.match_dir)
+    if not match_dir.is_absolute():
+        match_dir = ROOT / match_dir
+    preprocessor = MatchPreprocessor(match_dir=match_dir, whisper_model=args.whisper_model)
+    summary = preprocessor.process_all(
+        slice_window=args.slice_window,
+        slice_stride=args.slice_stride,
+    )
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_annotate_video(args: argparse.Namespace) -> int:
+    match_dir = Path(args.match_dir)
+    if not match_dir.is_absolute():
+        match_dir = ROOT / match_dir
+    transcript_path = Path(args.transcript) if args.transcript else match_dir / "transcript.jsonl"
+    return run_cli_annotator(match_dir=match_dir, transcript_path=transcript_path, labeler=args.labeler)
+
+
+def run_build_dataset(args: argparse.Namespace) -> int:
+    matches_dir = Path(args.matches_dir)
+    output_dir = Path(args.output)
+    if not matches_dir.is_absolute():
+        matches_dir = ROOT / matches_dir
+    if not output_dir.is_absolute():
+        output_dir = ROOT / output_dir
+    builder = DatasetBuilder(matches_dir=matches_dir, neg_ratio=args.neg_ratio)
+    stats = builder.build(output_dir=output_dir)
+    print(json.dumps({"status": "ok", "stats": stats}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_train(args: argparse.Namespace) -> int:
+    dataset_dir = ROOT / args.dataset
+    config = TrainConfig(
+        dataset_dir=str(dataset_dir),
+        model_name=args.model_name,
+        device=args.device,
+        num_epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.lr,
+    )
+    trainer = Trainer(config)
+    result = trainer.train()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_evaluate(args: argparse.Namespace) -> int:
+    model_path = Path(args.model)
+    dataset_dir = ROOT / args.dataset
+    evaluator = Evaluator(model_path=model_path, device=args.device)
+    metrics = evaluator.evaluate(dataset_dir=dataset_dir)
+    print(json.dumps({"status": "ok", "metrics": metrics.to_dict()}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_watch(args: argparse.Namespace) -> int:
+    model_path = Path(args.model)
+    if not model_path.is_absolute():
+        model_path = ROOT / model_path
+    pipeline = MLOnlinePipeline(
+        model_path=model_path,
+        probability_threshold=args.threshold,
+    )
+    try:
+        summary = pipeline.watch_stream(
+            stream_url=args.stream,
+            match_id=args.match_id,
+            max_frames=args.max_frames,
+            sample_interval_sec=args.sample_interval,
+        )
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    except RuntimeError as exc:
+        print(json.dumps({"status": "error", "message": str(exc)}, ensure_ascii=False, indent=2))
+        return 1
+    return 0
 
 
 def main() -> int:
@@ -566,6 +705,20 @@ def main() -> int:
         return run_validate(args)
     if args.command == "batch-replay":
         return run_batch_replay(args)
+    if args.command == "collect":
+        return run_collect(args)
+    if args.command == "preprocess":
+        return run_preprocess(args)
+    if args.command == "annotate-video":
+        return run_annotate_video(args)
+    if args.command == "build-dataset":
+        return run_build_dataset(args)
+    if args.command == "train":
+        return run_train(args)
+    if args.command == "evaluate":
+        return run_evaluate(args)
+    if args.command == "watch":
+        return run_watch(args)
     parser.print_help()
     return 1
 

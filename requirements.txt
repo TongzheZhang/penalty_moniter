@@ -1,4 +1,17 @@
+# 核心依赖
 PyYAML>=6.0
 requests>=2.31
 pytest>=8.0
 opencv-python>=4.9
+
+# 数据采集与预处理
+yt-dlp>=2024.0
+
+# 机器学习（离线训练 + 在线推理）
+torch>=2.0
+torchvision>=0.15
+transformers>=4.30
+onnxruntime>=1.15
+
+# 解说语音转文字（可选，仅audio模式需要）
+faster-whisper>=1.0
